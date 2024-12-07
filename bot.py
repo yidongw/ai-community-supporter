@@ -2,6 +2,9 @@ import requests
 import json
 import nltk
 from telethon import TelegramClient, events
+from collections import deque
+import asyncio
+import time
 
 # Remember to use your own values from my.telegram.org!
 api_id = 1025907
@@ -89,7 +92,7 @@ def generate_prompt(messages_summary):
             "群组成员们最近在讨论加密货币的价格波动、投资亏损等话题。"
             "在这样的讨论中，你会以友善、稳重的语气进行回应，"
             "通过暗示或陈述的方式表达你的观点，避免指导和教导。"
-            "请根据以下汇总的群友消息生成一个自然、简洁的评论，不超过两句话：\n\n"
+            "你不用提到群友的名字，只需要根据群友们的消息生成一个自然、简洁的评论，不超过两句话。\n\n"
             "群友消息：\n\n"
             f"群友消息：{messages_summary}\n\n"
             "你的评论："
@@ -100,8 +103,7 @@ def generate_prompt(messages_summary):
             "You are a member of the group, equally interested in cryptocurrencies as everyone else. "
             "Recently, group members have been discussing cryptocurrency price fluctuations, investment losses, and other related topics. "
             "In these discussions, you respond with a friendly and steady tone, using hints or statements to express your views without giving directives or instructions. "
-            "Please generate a natural and concise comment based on the following summary of group members' messages, not exceeding two sentences:\n\n"
-            "Group messages:\n\n"
+            "You don't need to mention group members' names, just generate a natural and concise comment based on their messages, not exceeding two sentences.\n\n"            "Group messages:\n\n"
             f"Group messages:{messages_summary}\n\n"
             "Your comment:"
         )
@@ -128,16 +130,35 @@ def generate_comment(messages_summary):
         return ""
 
 
+# Add these variables before the event handler
+message_buffer = deque(maxlen=10)  # Stores last 10 messages
+last_reply_time = 0
+REPLY_INTERVAL = 5  # 5 seconds interval
+
+
 @client.on(events.NewMessage)
 async def my_event_handler(event):
+    global last_reply_time
     sender = await event.get_sender()
     chat_id = event.chat_id
 
     if chat_id == -4619464166:
-        print(f"{sender.first_name} {sender.last_name}: {event.raw_text}")
+        msg = f"{sender.first_name} {sender.last_name}: {event.raw_text}"
+        # Record the message
+        message_buffer.append(msg)
+        print(msg)
         print()
-        reply = generate_comment(event.raw_text)
-        await event.respond(reply)
+
+        # Check if enough time has passed since last reply
+        current_time = time.time()
+        if current_time - last_reply_time >= REPLY_INTERVAL:
+            # Combine recent messages for context
+            messages_summary = "\n".join(list(message_buffer))
+            reply = generate_comment(messages_summary)
+            await event.respond(reply)
+            last_reply_time = current_time
+            # Clear the message buffer after sending response
+            message_buffer.clear()
 
 client.start()
 client.run_until_disconnected()
